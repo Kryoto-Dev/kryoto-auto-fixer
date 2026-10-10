@@ -54,6 +54,8 @@ when available. It reads those appearance settings only.
 ## Source and releases
 
 MIT licensed. CI tests the shared engine and uploads the Windows executable
-as a build artifact. Maintainers publish releases separately.
+as a build artifact. A version bump with its CHANGELOG entry publishes a
+release with the executable and its SHA-256
+([releases](https://github.com/official-kryo-to/kryoto-auto-fixer/releases/latest)).
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and
 [THIRD_PARTY.md](THIRD_PARTY.md).

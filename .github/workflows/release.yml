@@ -1,0 +1,124 @@
+name: Release
+
+# Fires on a VERSION BUMP, not on every push: the job reads `version` from
+# src-tauri/tauri.conf.json and stops if that version is already tagged. The
+# ritual is the same as Kryoto Desktop's: bump the version (package.json,
+# tauri.conf.json, Cargo.toml), add the CHANGELOG entry, push.
+#
+# The release is created only after the executable has built, passed its
+# self-check and been checked for a statically linked WebView2 loader, so a
+# published release always has its file.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src-tauri/tauri.conf.json'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version, and whether it is new
+        id: v
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v$v is already released; nothing to do."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch the shared engine and UI
+        if: steps.v.outputs.needed == 'true'
+        shell: bash
+        run: git clone --depth 1 https://github.com/official-kryo-to/kryoto-desktop.git ../kryoto-desktop
+      - uses: pnpm/action-setup@v4
+        if: steps.v.outputs.needed == 'true'
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        if: steps.v.outputs.needed == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.v.outputs.needed == 'true'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: steps.v.outputs.needed == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.v.outputs.needed == 'true'
+
+      - name: Versions agree
+        if: steps.v.outputs.needed == 'true'
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const pkg = JSON.parse(fs.readFileSync("package.json")).version;
+            const conf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json")).version;
+            const cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+            if (pkg !== conf || pkg !== cargo) throw new Error("App versions differ");
+            const log = fs.readFileSync("CHANGELOG.md", "utf8");
+            if (!log.includes(`## [${pkg}]`)) throw new Error(`CHANGELOG.md has no entry for ${pkg}`);
+          '
+
+      - name: Build and test
+        if: steps.v.outputs.needed == 'true'
+        shell: bash
+        run: |
+          pnpm --dir ../kryoto-desktop install --frozen-lockfile
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test
+          cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml
+          ./target/release/auto-fixer-gbef.exe --self-check
+
+      - name: The WebView2 loader is built in
+        if: steps.v.outputs.needed == 'true'
+        shell: pwsh
+        run: |
+          $imports = & dumpbin /dependents target/release/auto-fixer-gbef.exe
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect executable dependencies" }
+          if ($imports -match 'WebView2Loader\.dll') { throw "The WebView2 loader must be statically linked" }
+
+      - name: Publish the release
+        if: steps.v.outputs.needed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.v.outputs.version }}"
+          mkdir out
+          cp target/release/auto-fixer-gbef.exe out/
+          (cd out && sha256sum auto-fixer-gbef.exe > auto-fixer-gbef.exe.sha256)
+          # This version's notes: its CHANGELOG section, without the heading.
+          node -e '
+            const v = process.argv[1];
+            const log = require("fs").readFileSync("CHANGELOG.md", "utf8");
+            const start = log.indexOf(`## [${v}]`);
+            const rest = log.slice(start).split("\n").slice(1).join("\n");
+            const end = rest.search(/^## \[/m);
+            require("fs").writeFileSync("notes.md", (end < 0 ? rest : rest.slice(0, end)).trim() + "\n");
+          ' "$v"
+          gh release create "v$v" out/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Kryoto Auto-fixer $v" \
+            --notes-file notes.md
