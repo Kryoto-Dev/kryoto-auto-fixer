@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fixer"
+description = "Repair only the folder containing this executable; generate its support report."
+commands.allow = ["fixer_sources", "fixer_state", "fixer_apply", "fixer_undo", "fixer_support", "fixer_support_open", "fixer_look"]

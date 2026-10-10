@@ -1,0 +1,5 @@
+@import '../../kryoto-desktop/src/styles.css';
+@source '../../kryoto-desktop/src/ui';
+@source '../../kryoto-desktop/src/library/RepairPanel.tsx';
+@source './';
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
