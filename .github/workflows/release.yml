@@ -79,16 +79,26 @@ jobs:
             if (!log.includes(`## [${pkg}]`)) throw new Error(`CHANGELOG.md has no entry for ${pkg}`);
           '
 
-      - name: Build and test
+      # PowerShell, like CI: in a bash step Git's MSYS `link` shadows MSVC's
+      # link.exe and every build script fails to link.
+      - name: Install
         if: steps.v.outputs.needed == 'true'
-        shell: bash
         run: |
           pnpm --dir ../kryoto-desktop install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm install --frozen-lockfile
+      - name: Build the UI and test
+        if: steps.v.outputs.needed == 'true'
+        run: |
           pnpm build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm test
-          cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml
-          ./target/release/auto-fixer-gbef.exe --self-check
+      - name: Build the executable
+        if: steps.v.outputs.needed == 'true'
+        run: cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml
+      - name: Self-check
+        if: steps.v.outputs.needed == 'true'
+        run: ./target/release/auto-fixer-gbef.exe --self-check
 
       - name: The WebView2 loader is built in
         if: steps.v.outputs.needed == 'true'
