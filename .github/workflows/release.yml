@@ -48,7 +48,7 @@ jobs:
       - name: Fetch the shared engine and UI
         if: steps.v.outputs.needed == 'true'
         shell: bash
-        run: git clone --depth 1 https://github.com/official-kryo-to/kryoto-desktop.git ../kryoto-desktop
+        run: git clone --depth 1 https://github.com/Kryoto-Dev/kryoto-desktop.git ../kryoto-desktop
       - uses: pnpm/action-setup@v4
         if: steps.v.outputs.needed == 'true'
         with:
